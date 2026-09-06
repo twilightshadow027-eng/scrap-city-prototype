@@ -9,6 +9,12 @@ import {
 } from "@/game/engine";
 import { render, renderMinimap } from "@/game/render";
 import { COMPONENTS, SCRAP_GOAL, type ComponentType, type Phase } from "@/game/types";
+import {
+  calculateExtractionReward,
+  loadProfile,
+  recordGame,
+  type PlayerProfile,
+} from "@/game/progression";
 
 interface HudData {
   hp: number;
@@ -55,10 +61,13 @@ export function ScrapGame() {
   const [phase, setPhase] = useState<Phase>("menu");
   const [hud, setHud] = useState<HudData>(EMPTY_HUD);
   const [result, setResult] = useState<GameState["result"]>(null);
+  const [profile, setProfile] = useState<PlayerProfile>(() => loadProfile());
   const phaseRef = useRef<Phase>("menu");
+  const settledRunRef = useRef(false);
 
   const start = useCallback(() => {
     gameRef.current = createGame();
+    settledRunRef.current = false;
     setResult(null);
     phaseRef.current = "playing";
     setPhase("playing");
@@ -171,6 +180,11 @@ export function ScrapGame() {
         phaseRef.current = g.phase;
         setPhase(g.phase);
         setResult(g.result);
+
+        if (!settledRunRef.current && g.result) {
+          settledRunRef.current = true;
+          setProfile((current) => recordGame(current, g.result!, g.phase === "won"));
+        }
       }
     };
     raf = requestAnimationFrame(loop);
@@ -194,7 +208,7 @@ export function ScrapGame() {
               <div className="flex items-baseline justify-between">
                 <span className="font-display text-lg tracking-widest text-primary">SCRAP.IO</span>
                 <span className="text-xs text-muted-foreground">
-                  {Math.floor(hud.time / 60)}:{String(Math.floor(hud.time % 60)).padStart(2, "0")}
+                  {profile.scrapPoints.toLocaleString()} PTS · {Math.floor(hud.time / 60)}:{String(Math.floor(hud.time % 60)).padStart(2, "0")}
                 </span>
               </div>
               <Bar label="HULL" value={hud.hp / hud.maxHp} tone="hull" />
@@ -342,6 +356,8 @@ export function ScrapGame() {
                 <p className="mt-2 text-sm text-muted-foreground">
                   Banked {result.scrap} scrap with {result.parts} components in{" "}
                   {Math.floor(result.time)}s · {result.kills} rivals wrecked.
+                  <br />
+                  <span className="text-primary">+{calculateExtractionReward(result)} SCRAP POINTS</span>
                 </p>
               </>
             )}
@@ -374,6 +390,11 @@ export function ScrapGame() {
             <button onClick={start} className="btn-neon mt-8">
               {phase === "menu" ? "DEPLOY DRONE" : "REDEPLOY"}
             </button>
+            <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+              <span className="text-primary">SCRAP POINTS</span>{" "}
+              <span className="font-display text-lg text-scrap">{profile.scrapPoints.toLocaleString()}</span>
+              <span className="ml-2 text-muted-foreground">permanent currency</span>
+            </div>
             <div className="mt-3 text-[11px] tracking-widest text-muted-foreground">
               PRESS ENTER · WASD TO DRIVE · SPACE TO BOOST
             </div>
