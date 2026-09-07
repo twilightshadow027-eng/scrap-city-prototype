@@ -373,8 +373,9 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
             sb = statsOf(b);
           const pa = sa.ram * (a.boostTimer > 0 ? 2.4 : 1) * (Math.hypot(a.vx, a.vy) / 200 + 0.4);
           const pb = sb.ram * (b.boostTimer > 0 ? 2.4 : 1) * (Math.hypot(b.vx, b.vy) / 200 + 0.4);
-          damage(g, b, pa * 0.9);
-          damage(g, a, pb * 0.9);
+          damage(g, b, pa * 0.9, a);
+          damage(g, a, pb * 0.9, b);
+
           const win = pa > pb ? a : b;
           const lose = pa > pb ? b : a;
           if (Math.abs(pa - pb) > 8 && lose.parts.length > 0 && Math.random() < 0.45) {
@@ -451,23 +452,27 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
 
   if (!player.alive && g.phase === "playing") {
     g.phase = "lost";
-    g.result = { scrap: 0, parts: 0, kills: g.kills, time: g.time };
+    g.result = g.result ?? { scrap: 0, parts: 0, kills: g.kills, time: g.time };
   }
+
 }
 
-function damage(g: GameState, r: Robot, amount: number) {
+function damage(g: GameState, r: Robot, amount: number, attacker?: Robot) {
   r.hp -= amount;
   r.hitFlash = 1;
   if (r.hp <= 0) {
     r.alive = false;
     burst(g, r.x, r.y, r.tint, 46, 380);
     burst(g, r.x, r.y, "#ffd23f", 24, 260);
+    if (r.isPlayer) {
+      g.result = { scrap: r.scrap, parts: r.parts.length, kills: g.kills, time: g.time };
+    }
     // drop loot
     const drop = Math.min(r.scrap, 40);
     for (let i = 0; i < Math.ceil(drop / 3); i++) spawnPickup(g, false, r);
     for (const p of r.parts) {
       g.pickups.push({
-        id: Math.random() * 1e9,
+        id: pickupId++,
         x: r.x + rand(-40, 40),
         y: r.y + rand(-40, 40),
         kind: "component",
@@ -479,10 +484,14 @@ function damage(g: GameState, r: Robot, amount: number) {
     r.parts = [];
     r.scrap = 0;
     r.respawnAt = g.time + 5;
-    if (!r.isPlayer) g.kills++;
+    if (attacker?.isPlayer && !r.isPlayer) {
+      g.kills++;
+      float(g, r.x, r.y - 40, "WRECKED " + r.name, "#38f6c9");
+    }
     g.shake = 22;
   }
 }
+
 
 function reviveBot(r: Robot) {
   r.alive = true;
