@@ -373,7 +373,9 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
         b.x += nx * push;
         b.y += ny * push;
         const rel = Math.hypot(a.vx - b.vx, a.vy - b.vy);
-        if (rel > 90) {
+        // brief grace window so a single collision can't chain-damage every frame
+        if (rel > 90 && a.hitFlash < 0.55 && b.hitFlash < 0.55) {
+
           const sa = statsOf(a),
             sb = statsOf(b);
           const pa = sa.ram * (a.boostTimer > 0 ? 2.4 : 1) * (Math.hypot(a.vx, a.vy) / 200 + 0.4);
