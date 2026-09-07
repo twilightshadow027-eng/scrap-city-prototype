@@ -165,15 +165,17 @@ export function createGame(): GameState {
 export function spawnPickup(g: GameState, component: boolean, at?: { x: number; y: number }) {
   const x = at ? at.x + rand(-30, 30) : rand(80, WORLD.w - 80);
   const y = at ? at.y + rand(-30, 30) : rand(80, WORLD.h - 80);
-  g.pickups.push({
+  const base: Pickup = {
     id: pickupId++,
     x,
     y,
     kind: component ? "component" : "scrap",
-    ctype: component ? pick(COMPONENT_TYPES) : undefined,
     value: component ? 0 : Math.ceil(rand(1, 4)),
     seed: Math.random() * 999,
-  });
+  };
+  if (component) base.ctype = pick(COMPONENT_TYPES);
+  g.pickups.push(base);
+
 }
 
 export function burst(
