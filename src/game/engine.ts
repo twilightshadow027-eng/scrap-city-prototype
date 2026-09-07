@@ -65,14 +65,17 @@ export function statsOf(r: Robot): Stats {
     ram += c.boost;
     vision += c.vision;
   }
+  // rivals are handicapped so the salvage race stays winnable for the player
+  const hc = r.isPlayer ? 1 : 0.82;
   return {
-    speed: Math.max(70, speed),
+    speed: Math.max(70, speed) * (r.isPlayer ? 1 : 0.9),
     maxHp,
-    magnet,
+    magnet: magnet * hc,
     ram,
     vision,
   };
 }
+
 
 function makeRobot(id: string, isPlayer: boolean, name: string, tint: string): Robot {
   let x = 0,
