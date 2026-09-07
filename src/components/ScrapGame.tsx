@@ -115,9 +115,11 @@ export function ScrapGame() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    if (!gameRef.current) gameRef.current = createGame(); // live backdrop behind the menu
     let raf = 0;
     let last = performance.now();
     let hudAcc = 0;
+
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
