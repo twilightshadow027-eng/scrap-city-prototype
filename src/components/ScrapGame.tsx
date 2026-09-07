@@ -143,8 +143,10 @@ export function ScrapGame() {
       const w = window.innerWidth;
       const h = window.innerHeight;
       if (!g) return;
-      update(g, dt, inputRef.current, w, h);
+      const live = startedRef.current;
+      update(g, dt, live ? inputRef.current : IDLE_INPUT, w, h);
       render(ctx, g, w, h, now / 1000);
+
 
       const mini = miniRef.current;
       if (mini) {
@@ -172,12 +174,14 @@ export function ScrapGame() {
           time: g.time,
         });
       }
-      if (g.phase !== phaseRef.current) {
+      if (live && g.phase !== phaseRef.current) {
         phaseRef.current = g.phase;
+        if (g.phase !== "playing") startedRef.current = false;
         setPhase(g.phase);
         setResult(g.result);
       }
     };
+
     raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
