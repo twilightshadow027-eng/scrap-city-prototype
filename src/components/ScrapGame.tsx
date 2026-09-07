@@ -56,13 +56,16 @@ export function ScrapGame() {
   const [hud, setHud] = useState<HudData>(EMPTY_HUD);
   const [result, setResult] = useState<GameState["result"]>(null);
   const phaseRef = useRef<Phase>("menu");
+  const startedRef = useRef(false);
 
   const start = useCallback(() => {
     gameRef.current = createGame();
     setResult(null);
+    startedRef.current = true;
     phaseRef.current = "playing";
     setPhase("playing");
   }, []);
+
 
   useEffect(() => {
     const map: Record<string, keyof Input> = {
