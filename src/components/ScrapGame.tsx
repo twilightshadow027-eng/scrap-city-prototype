@@ -25,7 +25,17 @@ interface HudData {
   time: number;
 }
 
+const IDLE_INPUT: Input = {
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+  boost: false,
+  drop: false,
+};
+
 const EMPTY_HUD: HudData = {
+
   hp: 100,
   maxHp: 100,
   energy: 100,
@@ -56,13 +66,16 @@ export function ScrapGame() {
   const [hud, setHud] = useState<HudData>(EMPTY_HUD);
   const [result, setResult] = useState<GameState["result"]>(null);
   const phaseRef = useRef<Phase>("menu");
+  const startedRef = useRef(false);
 
   const start = useCallback(() => {
     gameRef.current = createGame();
     setResult(null);
+    startedRef.current = true;
     phaseRef.current = "playing";
     setPhase("playing");
   }, []);
+
 
   useEffect(() => {
     const map: Record<string, keyof Input> = {
@@ -115,9 +128,11 @@ export function ScrapGame() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    if (!gameRef.current) gameRef.current = createGame(); // live backdrop behind the menu
     let raf = 0;
     let last = performance.now();
     let hudAcc = 0;
+
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -138,8 +153,10 @@ export function ScrapGame() {
       const w = window.innerWidth;
       const h = window.innerHeight;
       if (!g) return;
-      update(g, dt, inputRef.current, w, h);
+      const live = startedRef.current;
+      update(g, dt, live ? inputRef.current : IDLE_INPUT, w, h);
       render(ctx, g, w, h, now / 1000);
+
 
       const mini = miniRef.current;
       if (mini) {
@@ -167,12 +184,14 @@ export function ScrapGame() {
           time: g.time,
         });
       }
-      if (g.phase !== phaseRef.current) {
+      if (live && g.phase !== phaseRef.current) {
         phaseRef.current = g.phase;
+        if (g.phase !== "playing") startedRef.current = false;
         setPhase(g.phase);
         setResult(g.result);
       }
     };
+
     raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);

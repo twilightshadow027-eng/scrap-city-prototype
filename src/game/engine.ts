@@ -65,14 +65,17 @@ export function statsOf(r: Robot): Stats {
     ram += c.boost;
     vision += c.vision;
   }
+  // rivals are handicapped so the salvage race stays winnable for the player
+  const hc = r.isPlayer ? 1 : 0.82;
   return {
-    speed: Math.max(70, speed),
+    speed: Math.max(70, speed) * (r.isPlayer ? 1 : 0.9),
     maxHp,
-    magnet,
+    magnet: magnet * hc,
     ram,
     vision,
   };
 }
+
 
 function makeRobot(id: string, isPlayer: boolean, name: string, tint: string): Robot {
   let x = 0,
@@ -165,15 +168,17 @@ export function createGame(): GameState {
 export function spawnPickup(g: GameState, component: boolean, at?: { x: number; y: number }) {
   const x = at ? at.x + rand(-30, 30) : rand(80, WORLD.w - 80);
   const y = at ? at.y + rand(-30, 30) : rand(80, WORLD.h - 80);
-  g.pickups.push({
+  const base: Pickup = {
     id: pickupId++,
     x,
     y,
     kind: component ? "component" : "scrap",
-    ctype: component ? pick(COMPONENT_TYPES) : undefined,
     value: component ? 0 : Math.ceil(rand(1, 4)),
     seed: Math.random() * 999,
-  });
+  };
+  if (component) base.ctype = pick(COMPONENT_TYPES);
+  g.pickups.push(base);
+
 }
 
 export function burst(
@@ -307,12 +312,14 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
     }
   }
 
-  // pickups
+  // pickups (stats cached once per frame for perf)
+  const statCache = new Map<string, Stats>();
+  for (const r of g.robots) statCache.set(r.id, statsOf(r));
   for (let i = g.pickups.length - 1; i >= 0; i--) {
     const p = g.pickups[i]!;
     for (const r of g.robots) {
       if (!r.alive) continue;
-      const st = statsOf(r);
+      const st = statCache.get(r.id)!;
       const d = Math.hypot(p.x - r.x, p.y - r.y);
       if (d < st.magnet + 24) {
         const pull = Math.min(1, dt * 6);
@@ -321,14 +328,14 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
       }
       if (d < r.radius + 12) {
         if (p.kind === "scrap") {
-          r.scrap += p.value;
+          r.scrap += r.isPlayer ? p.value : Math.max(1, Math.round(p.value * 0.45));
           if (r.isPlayer) {
             float(g, p.x, p.y, "+" + p.value, "#ffd23f");
             burst(g, p.x, p.y, "#ffd23f", 7, 110);
           }
         } else if (p.ctype) {
           if (r.parts.length >= 6) {
-            if (r.isPlayer) float(g, p.x, p.y, "FRAME FULL", "#ff6b57");
+            if (r.isPlayer && Math.random() < 0.02) float(g, p.x, p.y, "FRAME FULL", "#ff6b57");
             continue;
           }
           r.parts.push(p.ctype);
@@ -345,6 +352,7 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
       }
     }
   }
+
 
   // robot vs robot
   for (let i = 0; i < g.robots.length; i++) {
@@ -365,13 +373,16 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
         b.x += nx * push;
         b.y += ny * push;
         const rel = Math.hypot(a.vx - b.vx, a.vy - b.vy);
-        if (rel > 90) {
+        // brief grace window so a single collision can't chain-damage every frame
+        if (rel > 90 && a.hitFlash < 0.55 && b.hitFlash < 0.55) {
+
           const sa = statsOf(a),
             sb = statsOf(b);
           const pa = sa.ram * (a.boostTimer > 0 ? 2.4 : 1) * (Math.hypot(a.vx, a.vy) / 200 + 0.4);
           const pb = sb.ram * (b.boostTimer > 0 ? 2.4 : 1) * (Math.hypot(b.vx, b.vy) / 200 + 0.4);
-          damage(g, b, pa * 0.9);
-          damage(g, a, pb * 0.9);
+          damage(g, b, pa * 0.9, a);
+          damage(g, a, pb * 0.9, b);
+
           const win = pa > pb ? a : b;
           const lose = pa > pb ? b : a;
           if (Math.abs(pa - pb) > 8 && lose.parts.length > 0 && Math.random() < 0.45) {
@@ -448,23 +459,27 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
 
   if (!player.alive && g.phase === "playing") {
     g.phase = "lost";
-    g.result = { scrap: 0, parts: 0, kills: g.kills, time: g.time };
+    g.result = g.result ?? { scrap: 0, parts: 0, kills: g.kills, time: g.time };
   }
+
 }
 
-function damage(g: GameState, r: Robot, amount: number) {
+function damage(g: GameState, r: Robot, amount: number, attacker?: Robot) {
   r.hp -= amount;
   r.hitFlash = 1;
   if (r.hp <= 0) {
     r.alive = false;
     burst(g, r.x, r.y, r.tint, 46, 380);
     burst(g, r.x, r.y, "#ffd23f", 24, 260);
+    if (r.isPlayer) {
+      g.result = { scrap: r.scrap, parts: r.parts.length, kills: g.kills, time: g.time };
+    }
     // drop loot
     const drop = Math.min(r.scrap, 40);
     for (let i = 0; i < Math.ceil(drop / 3); i++) spawnPickup(g, false, r);
     for (const p of r.parts) {
       g.pickups.push({
-        id: Math.random() * 1e9,
+        id: pickupId++,
         x: r.x + rand(-40, 40),
         y: r.y + rand(-40, 40),
         kind: "component",
@@ -476,10 +491,14 @@ function damage(g: GameState, r: Robot, amount: number) {
     r.parts = [];
     r.scrap = 0;
     r.respawnAt = g.time + 5;
-    if (!r.isPlayer) g.kills++;
+    if (attacker?.isPlayer && !r.isPlayer) {
+      g.kills++;
+      float(g, r.x, r.y - 40, "WRECKED " + r.name, "#38f6c9");
+    }
     g.shake = 22;
   }
 }
+
 
 function reviveBot(r: Robot) {
   r.alive = true;
