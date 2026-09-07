@@ -25,7 +25,17 @@ interface HudData {
   time: number;
 }
 
+const IDLE_INPUT: Input = {
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+  boost: false,
+  drop: false,
+};
+
 const EMPTY_HUD: HudData = {
+
   hp: 100,
   maxHp: 100,
   energy: 100,
