@@ -328,7 +328,7 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
       }
       if (d < r.radius + 12) {
         if (p.kind === "scrap") {
-          r.scrap += p.value;
+          r.scrap += r.isPlayer ? p.value : Math.max(1, Math.round(p.value * 0.45));
           if (r.isPlayer) {
             float(g, p.x, p.y, "+" + p.value, "#ffd23f");
             burst(g, p.x, p.y, "#ffd23f", 7, 110);
