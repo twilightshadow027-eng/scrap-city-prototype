@@ -307,12 +307,14 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
     }
   }
 
-  // pickups
+  // pickups (stats cached once per frame for perf)
+  const statCache = new Map<string, Stats>();
+  for (const r of g.robots) statCache.set(r.id, statsOf(r));
   for (let i = g.pickups.length - 1; i >= 0; i--) {
     const p = g.pickups[i]!;
     for (const r of g.robots) {
       if (!r.alive) continue;
-      const st = statsOf(r);
+      const st = statCache.get(r.id)!;
       const d = Math.hypot(p.x - r.x, p.y - r.y);
       if (d < st.magnet + 24) {
         const pull = Math.min(1, dt * 6);
@@ -328,7 +330,7 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
           }
         } else if (p.ctype) {
           if (r.parts.length >= 6) {
-            if (r.isPlayer) float(g, p.x, p.y, "FRAME FULL", "#ff6b57");
+            if (r.isPlayer && Math.random() < 0.02) float(g, p.x, p.y, "FRAME FULL", "#ff6b57");
             continue;
           }
           r.parts.push(p.ctype);
@@ -345,6 +347,7 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
       }
     }
   }
+
 
   // robot vs robot
   for (let i = 0; i < g.robots.length; i++) {
