@@ -136,6 +136,8 @@ export interface Robot {
   aiTimer: number;
   aiTargetId: string | null;
   tint: string;
+  skin: SkinId;
+  design: number;
 }
 
 export interface Pickup {
@@ -146,6 +148,9 @@ export interface Pickup {
   ctype?: ComponentType;
   value: number;
   seed: number;
+  vx: number;
+  vy: number;
+  rejected: number;
 }
 
 export interface Obstacle {
@@ -153,7 +158,104 @@ export interface Obstacle {
   y: number;
   r: number;
   seed: number;
+  kind: "building" | "junk" | "tank" | "pipe";
 }
+
+export type TurretType = "scout" | "pulse" | "missile" | "shield";
+
+export interface Turret {
+  id: number;
+  x: number;
+  y: number;
+  type: TurretType;
+  angle: number;
+  cooldown: number;
+  telegraph: number;
+  hp: number;
+  maxHp: number;
+  disabled: number;
+  seed: number;
+}
+
+export interface Projectile {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  damage: number;
+  life: number;
+  type: TurretType;
+  targetId: string;
+}
+
+export interface Hazard {
+  x: number;
+  y: number;
+  r: number;
+  seed: number;
+}
+
+export type SkinId = "foundry" | "oxide" | "hazard" | "spectre" | "royal";
+
+export interface SkinDef {
+  id: SkinId;
+  name: string;
+  price: number;
+  body: string;
+  edge: string;
+  light: string;
+  description: string;
+}
+
+export const SKINS: Record<SkinId, SkinDef> = {
+  foundry: {
+    id: "foundry",
+    name: "Foundry Standard",
+    price: 0,
+    body: "#273138",
+    edge: "#65e6ce",
+    light: "#b7fff1",
+    description: "Factory steel with a cool arc core.",
+  },
+  oxide: {
+    id: "oxide",
+    name: "Oxide Runner",
+    price: 450,
+    body: "#4a3027",
+    edge: "#ef8b4e",
+    light: "#ffd28b",
+    description: "Heat-scored armor and furnace optics.",
+  },
+  hazard: {
+    id: "hazard",
+    name: "Hazard Unit",
+    price: 800,
+    body: "#34372f",
+    edge: "#e4c84a",
+    light: "#fff29b",
+    description: "Industrial warning livery for close calls.",
+  },
+  spectre: {
+    id: "spectre",
+    name: "Night Spectre",
+    price: 1300,
+    body: "#202833",
+    edge: "#c47cff",
+    light: "#ead0ff",
+    description: "Black alloy with ultraviolet sensors.",
+  },
+  royal: {
+    id: "royal",
+    name: "Salvage Royal",
+    price: 2200,
+    body: "#3b3540",
+    edge: "#ff5b8d",
+    light: "#ffd3df",
+    description: "A rare magenta command chassis.",
+  },
+};
 
 export interface Particle {
   x: number;
