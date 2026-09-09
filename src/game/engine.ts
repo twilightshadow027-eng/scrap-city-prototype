@@ -10,8 +10,13 @@ import {
   type Particle,
   type Phase,
   type Pickup,
+  type Projectile,
   type Robot,
+  type SkinId,
   type Stats,
+  type Turret,
+  type TurretType,
+  type Hazard,
 } from "./types";
 
 const BOT_NAMES = [
@@ -33,6 +38,7 @@ function pick<T>(arr: T[]): T {
 }
 
 let pickupId = 1;
+let projectileId = 1;
 
 export interface GameState {
   phase: Phase;
@@ -40,6 +46,9 @@ export interface GameState {
   robots: Robot[];
   pickups: Pickup[];
   obstacles: Obstacle[];
+  turrets: Turret[];
+  projectiles: Projectile[];
+  hazards: Hazard[];
   particles: Particle[];
   floats: FloatText[];
   camera: { x: number; y: number };
@@ -49,6 +58,8 @@ export interface GameState {
   messageTimer: number;
   result: { scrap: number; parts: number; kills: number; time: number } | null;
   kills: number;
+  runPoints: number;
+  events: Array<"collect" | "attach" | "repel" | "boost" | "hit" | "extract">;
 }
 
 export function statsOf(r: Robot): Stats {
@@ -77,7 +88,7 @@ export function statsOf(r: Robot): Stats {
 }
 
 
-function makeRobot(id: string, isPlayer: boolean, name: string, tint: string): Robot {
+function makeRobot(id: string, isPlayer: boolean, name: string, tint: string, skin: SkinId = "foundry"): Robot {
   let x = 0,
     y = 0;
   do {
@@ -110,6 +121,8 @@ function makeRobot(id: string, isPlayer: boolean, name: string, tint: string): R
     aiTimer: 0,
     aiTargetId: null,
     tint,
+    skin,
+    design: isPlayer ? 0 : Math.floor(rand(1, 4)),
   };
 }
 
@@ -124,9 +137,10 @@ const BOT_TINTS = [
   "#5cffe0",
 ];
 
-export function createGame(): GameState {
+export function createGame(skin: SkinId = "foundry"): GameState {
   pickupId = 1;
-  const robots: Robot[] = [makeRobot("player", true, "YOU", "#38f6c9")];
+  projectileId = 1;
+  const robots: Robot[] = [makeRobot("player", true, "YOU", "#65e6ce", skin)];
   const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
   for (let i = 0; i < 7; i++) {
     const b = makeRobot("bot" + i, false, names[i]!, BOT_TINTS[i % BOT_TINTS.length]!);
@@ -142,8 +156,36 @@ export function createGame(): GameState {
     const x = rand(120, WORLD.w - 120);
     const y = rand(120, WORLD.h - 120);
     if (Math.hypot(x - EXTRACT.x, y - EXTRACT.y) < EXTRACT.r + 140) continue;
-    obstacles.push({ x, y, r: rand(30, 92), seed: Math.random() * 999 });
+    const kinds: Obstacle["kind"][] = ["building", "junk", "tank", "pipe"];
+    obstacles.push({
+      x,
+      y,
+      r: rand(30, 92),
+      seed: Math.random() * 999,
+      kind: pick(kinds),
+    });
   }
+
+  const turretTypes: TurretType[] = ["scout", "pulse", "missile", "shield"];
+  const turrets: Turret[] = [];
+  for (let i = 0; i < 22; i++) {
+    let x = 0;
+    let y = 0;
+    do {
+      x = rand(360, WORLD.w - 360);
+      y = rand(360, WORLD.h - 360);
+    } while (Math.hypot(x - robots[0]!.x, y - robots[0]!.y) < 650 || Math.hypot(x - EXTRACT.x, y - EXTRACT.y) < 520);
+    const type = turretTypes[i % turretTypes.length]!;
+    const hp = type === "shield" ? 150 : type === "missile" ? 110 : 85;
+    turrets.push({ id: i, x, y, type, angle: 0, cooldown: rand(0, 2), telegraph: 0, hp, maxHp: hp, disabled: 0, seed: Math.random() * 99 });
+  }
+
+  const hazards: Hazard[] = Array.from({ length: 18 }, (_, i) => ({
+    x: 420 + ((i * 827) % 4300),
+    y: 380 + ((i * 613) % 4400),
+    r: rand(70, 130),
+    seed: Math.random() * 50,
+  })).filter((h) => Math.hypot(h.x - EXTRACT.x, h.y - EXTRACT.y) > 500);
 
   const g: GameState = {
     phase: "playing",
@@ -151,6 +193,9 @@ export function createGame(): GameState {
     robots,
     pickups: [],
     obstacles,
+    turrets,
+    projectiles: [],
+    hazards,
     particles: [],
     floats: [],
     camera: { x: robots[0]!.x, y: robots[0]!.y },
@@ -160,6 +205,8 @@ export function createGame(): GameState {
     messageTimer: 0,
     result: null,
     kills: 0,
+    runPoints: 0,
+    events: [],
   };
   for (let i = 0; i < 420; i++) spawnPickup(g, Math.random() < 0.16);
   return g;
@@ -175,6 +222,9 @@ export function spawnPickup(g: GameState, component: boolean, at?: { x: number; 
     kind: component ? "component" : "scrap",
     value: component ? 0 : Math.ceil(rand(1, 4)),
     seed: Math.random() * 999,
+    vx: 0,
+    vy: 0,
+    rejected: 0,
   };
   if (component) base.ctype = pick(COMPONENT_TYPES);
   g.pickups.push(base);
@@ -229,6 +279,7 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
   g.messageTimer = Math.max(0, g.messageTimer - dt);
 
   const player = g.robots[0]!;
+  g.events.length = 0;
 
   for (const r of g.robots) {
     if (!r.alive) {
@@ -249,6 +300,7 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
         r.boostCooldown = 1.5;
         r.energy -= 22;
         burst(g, r.x, r.y, "#38f6c9", 16, 240);
+        g.events.push("boost");
       }
     } else {
       const t = aiThink(g, r, st);
@@ -317,6 +369,11 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
   for (const r of g.robots) statCache.set(r.id, statsOf(r));
   for (let i = g.pickups.length - 1; i >= 0; i--) {
     const p = g.pickups[i]!;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= Math.exp(-3.2 * dt);
+    p.vy *= Math.exp(-3.2 * dt);
+    p.rejected = Math.max(0, p.rejected - dt);
     for (const r of g.robots) {
       if (!r.alive) continue;
       const st = statCache.get(r.id)!;
@@ -332,10 +389,23 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
           if (r.isPlayer) {
             float(g, p.x, p.y, "+" + p.value, "#ffd23f");
             burst(g, p.x, p.y, "#ffd23f", 7, 110);
+            g.runPoints += p.value;
+            g.events.push("collect");
           }
         } else if (p.ctype) {
           if (r.parts.length >= 6) {
-            if (r.isPlayer && Math.random() < 0.02) float(g, p.x, p.y, "FRAME FULL", "#ff6b57");
+            if (r.isPlayer && p.rejected <= 0) {
+              const dx = p.x - r.x || 1;
+              const dy = p.y - r.y;
+              const length = Math.hypot(dx, dy) || 1;
+              p.vx = (dx / length) * 420 + r.vx * 0.25;
+              p.vy = (dy / length) * 420 + r.vy * 0.25;
+              p.rejected = 1.1;
+              float(g, p.x, p.y, "MOUNT ARRAY FULL", "#ff8a50");
+              burst(g, p.x, p.y, "#ff8a50", 18, 260);
+              g.shake = Math.min(10, g.shake + 4);
+              g.events.push("repel");
+            }
             continue;
           }
           r.parts.push(p.ctype);
@@ -344,6 +414,8 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
             float(g, p.x, p.y, c.name, c.color);
             say(g, `${c.name} attached — ${c.desc}`);
             burst(g, p.x, p.y, c.color, 20, 180);
+            g.runPoints += 15;
+            g.events.push("attach");
           }
         }
         g.pickups.splice(i, 1);
@@ -352,6 +424,8 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
       }
     }
   }
+
+  updateTurrets(g, dt, player);
 
 
   // robot vs robot
@@ -419,6 +493,8 @@ export function update(g: GameState, dt: number, input: Input, viewW: number, vi
         kills: g.kills,
         time: g.time,
       };
+      g.runPoints += 300 + player.parts.length * 25;
+      g.events.push("extract");
     }
   } else {
     g.extractProgress = Math.max(0, g.extractProgress - dt / 3);
@@ -486,6 +562,9 @@ function damage(g: GameState, r: Robot, amount: number, attacker?: Robot) {
         ctype: p,
         value: 0,
         seed: Math.random() * 999,
+        vx: rand(-100, 100),
+        vy: rand(-100, 100),
+        rejected: 0,
       });
     }
     r.parts = [];
@@ -493,10 +572,78 @@ function damage(g: GameState, r: Robot, amount: number, attacker?: Robot) {
     r.respawnAt = g.time + 5;
     if (attacker?.isPlayer && !r.isPlayer) {
       g.kills++;
+      g.runPoints += 80;
       float(g, r.x, r.y - 40, "WRECKED " + r.name, "#38f6c9");
     }
     g.shake = 22;
   }
+}
+
+function updateTurrets(g: GameState, dt: number, player: Robot) {
+  if (!player.alive) return;
+  for (const turret of g.turrets) {
+    turret.disabled = Math.max(0, turret.disabled - dt);
+    turret.cooldown -= dt;
+    const dx = player.x - turret.x;
+    const dy = player.y - turret.y;
+    const distance = Math.hypot(dx, dy);
+    turret.angle = Math.atan2(dy, dx);
+    const range = turret.type === "missile" ? 650 : turret.type === "scout" ? 500 : 430;
+    if (distance < range && turret.disabled <= 0) {
+      if (turret.cooldown <= 0 && turret.telegraph <= 0) {
+        turret.telegraph = turret.type === "missile" ? 1.25 : turret.type === "pulse" ? 0.65 : 0.8;
+      }
+      if (turret.telegraph > 0) {
+        turret.telegraph -= dt;
+        if (turret.telegraph <= 0) {
+          const speed = turret.type === "missile" ? 210 : turret.type === "pulse" ? 300 : 440;
+          const spread = turret.type === "pulse" ? [-0.18, 0, 0.18] : [0];
+          for (const offset of spread) {
+            const angle = turret.angle + offset;
+            g.projectiles.push({
+              id: projectileId++, x: turret.x + Math.cos(angle) * 30, y: turret.y + Math.sin(angle) * 30,
+              vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+              radius: turret.type === "missile" ? 8 : 5,
+              damage: turret.type === "missile" ? 24 : turret.type === "pulse" ? 10 : 13,
+              life: turret.type === "missile" ? 3.6 : 2.2, type: turret.type, targetId: player.id,
+            });
+          }
+          turret.cooldown = turret.type === "scout" ? 1.2 : turret.type === "pulse" ? 2.4 : turret.type === "missile" ? 3.6 : 2.8;
+        }
+      }
+    } else turret.telegraph = 0;
+  }
+
+  for (let i = g.projectiles.length - 1; i >= 0; i--) {
+    const projectile = g.projectiles[i]!;
+    projectile.life -= dt;
+    if (projectile.type === "missile") {
+      const dx = player.x - projectile.x;
+      const dy = player.y - projectile.y;
+      const angle = Math.atan2(dy, dx);
+      const speed = Math.hypot(projectile.vx, projectile.vy);
+      projectile.vx += (Math.cos(angle) * speed - projectile.vx) * Math.min(1, dt * 1.8);
+      projectile.vy += (Math.sin(angle) * speed - projectile.vy) * Math.min(1, dt * 1.8);
+    }
+    projectile.x += projectile.vx * dt;
+    projectile.y += projectile.vy * dt;
+    if (Math.random() < 0.45) g.particles.push({ x: projectile.x, y: projectile.y, vx: -projectile.vx * 0.08, vy: -projectile.vy * 0.08, life: 0.25, maxLife: 0.25, color: projectile.type === "missile" ? "#ff8a50" : "#ffcd61", size: 2.5 });
+    if (Math.hypot(projectile.x - player.x, projectile.y - player.y) < player.radius + projectile.radius) {
+      damage(g, player, projectile.damage);
+      burst(g, projectile.x, projectile.y, "#ff8a50", 22, 240);
+      g.events.push("hit");
+      g.shake = Math.min(16, g.shake + 8);
+      g.projectiles.splice(i, 1);
+    } else if (projectile.life <= 0) g.projectiles.splice(i, 1);
+  }
+
+  for (const hazard of g.hazards) {
+    if (Math.hypot(player.x - hazard.x, player.y - hazard.y) < hazard.r && Math.random() < dt * 1.2) {
+      damage(g, player, 2.5);
+      g.events.push("hit");
+    }
+  }
+  if (g.projectiles.length > 90) g.projectiles.splice(0, g.projectiles.length - 90);
 }
 
 
